@@ -1,0 +1,82 @@
+pgm (&file &pgm_pkg &pgm_liv &save ) /*----------------------*/
+/* ce programme permet de mettre à jour une table             */
+/* A  partir d'une nouvelle table sans perdre  les données    */
+/* et les éléments dépendants                                 */
+/*                                                            */
+/*------------------------------------------------------------*/
+/* Paramètres                                                 */
+/*------------------------------------------------------------*/
+dcl &file       *char 10    /* fichier                        */
+dcl &pgm_pkg    *char 10    /* Bibliothèque du package à livrer*/
+dcl &pgm_liv    *char 10    /* bib de livraison               */
+dcl &save       *char  4    /* Sauvegarde du source modif.    */
+/*------------------------------------------------------------*/
+/* Variables de travail                                       */
+/*------------------------------------------------------------*/
+dcl &dat6       *char  6
+dcl &dat8       *char  8
+             INCLUDE    SRCMBR(ERREUR1)
+/*------------------------------------------------------------*/
+/* controle                                                   */
+/*------------------------------------------------------------*/
+chkobj  &pgm_pkg  *lib
+chkobj  &pgm_liv   *lib
+
+/* controle des bbliothèques */
+if cond(&pgm_pkg = &pgm_liv) then( +
+             SNDPGMMSG  MSGID(CPF9898) MSGF(QCPFMSG) MSGDTA('La +
+                          bibliothèque d''origine doit être +
+                          différente de la bibliothèque à Livrer') +
+                          MSGTYPE(*ESCAPE))
+
+/* controle de l'existence du fichier dans la base version */
+chkobj  &pgm_pkg/&file *file
+
+/* controle de l'existence du fichier dans la base livraison   */
+chkobj  &pgm_liv/&file *file
+
+             DLTF       FILE(QTEMP/QSQLSRC)
+             monmsg cpf2100
+             RUNSQL     SQL('DROP ALIAS QTEMP/MAJFIC') COMMIT(*NONE)
+             monmsg SQL0000
+             CRTSRCPF   FILE(QTEMP/QSQLSRC) RCDLEN(112)
+ /* extraction du source */
+             RTVSQLSRC  FILE(&pgm_pkg/&FILE) SRCFILE(QTEMP/QSQLSRC) +
+                          SRCMBR(MAJFIC)
+             RUNSQL     SQL('CREATE ALIAS QTEMP/MAJFIC FOR +
+                          QTEMP/QSQLSRC (MAJFIC)') COMMIT(*NONE)
+
+ /* remplacement de la bibliothèque de version par celle de livraison */
+             RUNSQL     SQL('Update majfic set srcdta = +
+                          replace(srcdta,''' !< &pgm_pkg !< ''' , +
+                          ''' !< &PGM_LIV !< ''')') COMMIT(*NONE)
+
+ /* remplacement de CREATE par CREATE OR REPLACE                      */
+             RUNSQL     SQL('update majfic set srcdta = +
+                          replace(srcdta, ''CREATE'' , ''CREATE OR +
+                          REPLACE'')') COMMIT(*NONE)
+
+ /* sauvegarde du source modifié */
+ if cond(&save = '*YES') then(do)
+             RTVSYSVAL  SYSVAL(QDATE) RTNVAR(&DAT6)
+             CVTDAT     DATE(&DAT6) TOVAR(&DAT8) FROMFMT(*SYSVAL) +
+                          TOFMT(*YYMD) TOSEP(*NONE)
+                          chkobj ('G' !< &dat8)  *lib
+                          monmsg cpf9801 exec(do)
+             CRTLIB     LIB('G' !< &DAT8) TEXT('Grefer Archive')
+                          enddo
+                          chkobj (('G' !< &dat8)/qsqlsrc)  *file
+                          monmsg cpf9801 exec(do)
+             CRTSRCPF   FILE(('G' !< &DAT8)/QSQLSRC) RCDLEN(112)
+                          enddo
+             CPYF       FROMFILE(QTEMP/QSQLSRC) TOFILE(('G' !< +
+                          &DAT8)/QSQLSRC) FROMMBR(MAJFIC) +
+                          TOMBR(&FILE) MBROPT(*REPLACE)
+ enddo
+ /* Execution du scripte de modification                             */
+             RUNSQLSTM  SRCFILE(QTEMP/QSQLSRC) SRCMBR(MAJFIC) +
+                          COMMIT(*NONE) MARGINS(112) +
+                          OPTION(*NOLIST) SECLVLTXT(*YES)
+ /**/
+             INCLUDE    SRCMBR(ERREUR2)
+             endpgm
